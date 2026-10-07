@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// MeloFlow is a single-user app: only the administrator account may read or
+// write anything. Set the email below with `npm run set-admin -- you@example.com`.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == 'you@example.com';
+    }
+
+    match /transactions/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /receivables/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /balances/{name} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && request.resource.data.runningBalance is number;
+    }
+    match /balanceEvents/{id} {
+      allow read, create: if isAdmin();
+      // The audit trail is append-only.
+      allow update, delete: if false;
+    }
+    match /userSettings/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /appliances/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

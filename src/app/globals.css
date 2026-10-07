@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "@fontsource-variable/schibsted-grotesk";
+
+/*
+ * MeloFlow palette — a house ledger, not a bank.
+ * Ink is a deep plum-navy (the sidebar), the accent is the violet of the
+ * RM100 note, and payment status uses the red / amber / green the calendar
+ * promises. Surfaces are a cool paper grey so money in ink reads clearly.
+ */
+@theme {
+  --color-paper: #eef0f4;
+  --color-surface: #ffffff;
+  --color-line: #dadde6;
+  --color-ink: #1d1838;
+  --color-ink-soft: #57536e;
+  --color-ink-faint: #8b88a0;
+  --color-plum: #261d4f;
+  --color-plum-2: #342866;
+  --color-violet: #5b3fa8;
+  --color-violet-soft: #ece7f8;
+  --color-pending: #cf3f3f;
+  --color-pending-soft: #fbe9e9;
+  --color-partial: #c98a00;
+  --color-partial-soft: #fdf3d8;
+  --color-settled: #23885c;
+  --color-settled-soft: #e2f4ea;
+  --color-personal: #5c6b85;
+  --color-personal-soft: #e8ecf3;
+
+  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-panel: 14px;
+  --radius-control: 9px;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Money: lining figures. (This face's tabular set also widens the comma and
+   point, which reads badly in ringgit amounts, so amounts are right-aligned instead.) */
+.num {
+  font-variant-numeric: lining-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-violet);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- FullCalendar v7 classic theme, re-coloured to the palette ---------- */
+.mf-calendar {
+  --fc-classic-button: var(--color-surface);
+  --fc-classic-button-border: var(--color-line);
+  --fc-classic-button-strong: var(--color-violet-soft);
+  --fc-classic-button-strong-border: var(--color-violet);
+  --fc-classic-button-outline: #5b3fa855;
+  --fc-classic-button-foreground: var(--color-ink);
+  --fc-classic-primary: var(--color-violet);
+  --fc-classic-today: #5b3fa814;
+  --fc-classic-border: var(--color-line);
+  --fc-classic-foreground: var(--color-ink);
+  --fc-classic-muted-foreground: var(--color-ink-soft);
+  --fc-classic-faint-foreground: var(--color-ink-faint);
+  font-size: 0.85rem;
+}
+.mf-calendar .fc-event,
+.mf-calendar a {
+  cursor: pointer;
+}
+
+/* Sheet entrance — used only for drawers/dialogs opened by the user. */
+@keyframes mf-rise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.mf-rise {
+  animation: mf-rise 180ms ease-out;
+}
