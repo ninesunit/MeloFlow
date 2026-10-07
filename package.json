@@ -11,8 +11,9 @@
     "test": "vitest run",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "set-admin": "node scripts/set-admin.mjs",
-    "deploy:rules": "firebase deploy --only firestore",
-    "emulators": "firebase emulators:start --only auth,firestore"
+    "deploy:rules": "node scripts/build-rules.mjs && firebase deploy --only firestore",
+    "emulators": "firebase emulators:start --only auth,firestore",
+    "build:rules": "node scripts/build-rules.mjs"
   },
   "dependencies": {
     "@fontsource-variable/schibsted-grotesk": "^5.3.0",

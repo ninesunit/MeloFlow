@@ -100,7 +100,7 @@ function Frame({ pathname, children }: { pathname: string; children: ReactNode }
         {error && (
           <div className="mb-4">
             <Notice tone="error">
-              Couldn&rsquo;t load your data: {error}. Check that the Firestore rules list your admin email (see README).
+              Couldn&rsquo;t load your data: {error}. Check that the Firestore rules list this account&rsquo;s email (see README).
             </Notice>
           </div>
         )}

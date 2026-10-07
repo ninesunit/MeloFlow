@@ -53,13 +53,13 @@ export default function LoginPage() {
           <p className="text-[2.4rem] leading-[1.1] font-semibold tracking-[-0.02em]">Every bill split, every ringgit accounted for.</p>
           <p className="mt-4 text-white/65">Rent, TNB, Air Selangor and Wi-Fi for the house — plus your own budget, kept separate.</p>
         </div>
-        <p className="text-sm text-white/40">Single-user ledger</p>
+        <p className="text-sm text-white/40">Private house ledger</p>
       </div>
       <div className="flex items-center justify-center px-6 py-16">
         <form onSubmit={submit} className="w-full max-w-sm">
           <p className="mb-8 text-2xl font-semibold tracking-[-0.02em] lg:hidden">MeloFlow</p>
           <h1 className="text-2xl font-semibold">Sign in</h1>
-          <p className="mt-1 mb-6 text-ink-soft">Use the administrator account created in Firebase.</p>
+          <p className="mt-1 mb-6 text-ink-soft">Use an admin account created in Firebase.</p>
           <div className="flex flex-col gap-4">
             <Field label="Email">
               {(id) => <Input id={id} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />}

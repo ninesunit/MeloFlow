@@ -2,7 +2,7 @@
 
 A single-user web app for running a shared house: split rent and utility bills with housemates, track who has paid, carry over under- and over-payments automatically, watch electricity and water usage, and keep your own budget separate from house money.
 
-Built for one main tenant (Alia) sharing with two housemates (Nana and Alisa). Names, phone numbers and the number of housemates are all editable in **Settings**.
+Built for one main tenant (Alia) sharing with two housemates (Nana and Alisa). Names, phone numbers and the number of housemates are all editable in **Settings**. Housemates never sign in; one or more **admin accounts** (e.g. Alia's, plus a maintainer's for troubleshooting) share the same data.
 
 **Runs entirely on free tiers:** Firebase **Spark** plan (Auth + Firestore only — no Cloud Functions, no Cloud Storage) and **Vercel Hobby** for the Next.js app and its one API route.
 
@@ -26,7 +26,7 @@ Built for one main tenant (Alia) sharing with two housemates (Nana and Alisa). N
 
 | Need | Blaze-only Firebase feature | What MeloFlow uses instead |
 | --- | --- | --- |
-| Server code for Gemini | Cloud Functions | One Next.js API route, `src/app/api/gemini/route.ts`, on Vercel. `GEMINI_API_KEY` is a server-only environment variable and never reaches the browser. The route checks the caller's Firebase ID token (signature, project and admin email) using Google's public keys — no service account needed. |
+| Server code for Gemini | Cloud Functions | One Next.js API route, `src/app/api/gemini/route.ts`, on Vercel. `GEMINI_API_KEY` is a server-only environment variable and never reaches the browser. The route checks the caller's Firebase ID token (signature, project, and that the email is in `ADMIN_EMAILS`) using Google's public keys — no service account needed. |
 | Monthly recurring bills | Scheduled Cloud Function | Generated in the browser when the dashboard opens (`src/lib/recurring.ts`). Each copy has a fixed id (`<templateId>_<YYYY-MM>`) and is written in a Firestore transaction that first checks the id is free, so two tabs can't create it twice. Missed months (up to 12) are filled in too. |
 | Receipts and DuitNow QR | Cloud Storage (requires Blaze since February 2026) | Photos are compressed in the browser (≤ 600 KB) and stored as base64 in the Firestore `files` collection. PDFs are kept if they're under 600 KB; larger PDFs are still read by the AI but not attached. Share links look like `https://your-app/f/<id>/`. |
 | Hosting a Next.js app with an API route | Firebase App Hosting / frameworks hosting | Vercel Hobby (free). |
@@ -36,7 +36,7 @@ Spark limits to keep in mind: 1 GiB Firestore storage and 50,000 reads / 20,000 
 ## Tech stack
 
 - **Next.js 16** (App Router) + React 19 + **Tailwind CSS 4**, deployed on **Vercel**
-- **Firebase Spark**: Auth (one admin account) and Firestore
+- **Firebase Spark**: Auth (admin accounts only) and Firestore
 - **Gemini API** (`@google/genai`, default model `gemini-3.8-flash`) — called only from the API route
 - **FullCalendar 7**, **SheetJS** (`xlsx`), **jose** (ID-token checks)
 - **Vitest** for the money logic
@@ -61,8 +61,9 @@ src/
     recurring.ts          client-side recurring bill generator
     ai.ts                 browser side of /api/gemini
     excel.ts              SheetJS import/export
-firestore.rules           admin-only access (plus get-by-id for shared files)
-scripts/set-admin.mjs     writes your admin email into the rules and .env.local
+firestore.rules.template  security rules; admin-only access (plus get-by-id for shared files)
+scripts/set-admin.mjs     saves ADMIN_EMAILS in .env.local and generates firestore.rules
+scripts/build-rules.mjs   generates firestore.rules (git-ignored) from the template + ADMIN_EMAILS
 ```
 
 ## Data model (Firestore)
@@ -73,7 +74,7 @@ scripts/set-admin.mjs     writes your admin email into the rules and .env.local
 | `receivables` | `transactionId`, `debtorName`, `baseShare`, `carryIn`, `amountOwed`, `amountPaid`, `status` (Pending / Partial / Settled), `carriedForward`, `creditFromOverpayment`, `payments[]`, `updatedAt` |
 | `balances` | doc id = housemate name: `runningBalance` (positive = owes, negative = credit) |
 | `balanceEvents` | append-only log of every running-balance change |
-| `userSettings/main` | `adminUid`, `adminName`, `housemates[]` (name, WhatsApp), `duitNowQrFileId`, `bankAccountDetails`, `monthlyUtilityCaps`, `personalBudgetCaps`, `monthlyPersonalBudget`, `tariffs` |
+| `userSettings/main` | `adminUid` (who set the app up), `adminName`, `housemates[]` (name, WhatsApp), `duitNowQrFileId`, `bankAccountDetails`, `monthlyUtilityCaps`, `personalBudgetCaps`, `monthlyPersonalBudget`, `tariffs` |
 | `appliances` | `name`, `type`, `quantity`, `powerRatingWatts`, `horsepower`, `estimatedDailyHours`, `dutyCyclePercent`, `waterVolumeCubicMeters`, `usesPerWeek` |
 | `files` | doc id = random 32-character key: `kind` (receipt / payment), `name`, `mimeType`, `size`, `data` (base64) |
 
@@ -91,7 +92,7 @@ You'll need a Google account, a GitHub account, and Node.js 22+.
 ### 1. Firebase (Spark plan)
 
 1. <https://console.firebase.google.com> → **Add project** (stay on the free Spark plan).
-2. **Authentication** → Get started → enable **Email/Password**. Then **Users → Add user** with your email and a strong password. This is the only account the app accepts.
+2. **Authentication** → Get started → enable **Email/Password**. Then **Users → Add user** once for each admin (e.g. Alia and you), each with a strong password. Only these accounts can use the app.
 3. Authentication → **Settings → User actions** → untick **Enable create (sign-up)** so nobody else can register.
 4. **Firestore Database** → Create database → Production mode → location `asia-southeast1 (Singapore)`.
 5. **Project settings → Your apps** → add a **Web app** and copy its config values.
@@ -104,7 +105,7 @@ git clone https://github.com/ninesunit/MeloFlow.git
 cd MeloFlow
 npm install
 cp .env.example .env.local           # paste the Firebase web config and your GEMINI_API_KEY
-npm run set-admin -- you@example.com # admin email → firestore.rules + ADMIN_EMAIL in .env.local
+npm run set-admin -- alia@example.com you@example.com   # every admin, in one go
 npx firebase login
 npx firebase use --add               # pick your project
 npm run deploy:rules                 # publish the Firestore security rules (free on Spark)
@@ -116,7 +117,7 @@ Get the Gemini key at <https://aistudio.google.com/apikey>. Keep it in `.env.loc
 ### 3. Deploy to Vercel (free)
 
 1. Sign in at <https://vercel.com> with GitHub → **Add New → Project** → import `MeloFlow`. The defaults for Next.js are correct.
-2. Before deploying, open **Environment Variables** and add every variable from `.env.local`: the six `NEXT_PUBLIC_FIREBASE_…` values, `GEMINI_API_KEY`, `GEMINI_MODEL` and `ADMIN_EMAIL`.
+2. Before deploying, open **Environment Variables** and add every variable from `.env.local`: the six `NEXT_PUBLIC_FIREBASE_…` values, `GEMINI_API_KEY`, `GEMINI_MODEL` and `ADMIN_EMAILS` (comma-separated, no spaces needed).
 3. Deploy. Every push to `main` redeploys automatically.
 4. In Firebase → **Authentication → Settings → Authorized domains**, add your Vercel domain (e.g. `meloflow.vercel.app`) so sign-in works there.
 
@@ -128,7 +129,7 @@ npm test             # unit tests for splitting, balances, tariffs, forecasts, r
 npm run lint
 npm run typecheck
 npm run check        # all of the above plus a production build
-npm run deploy:rules # after changing firestore.rules or the admin email
+npm run deploy:rules # regenerates firestore.rules from the template + ADMIN_EMAILS, then publishes it
 ```
 
 ## Tariffs used by the estimator
@@ -140,7 +141,8 @@ Rates live in `src/lib/shared/tariffs.ts` — update them there if they change. 
 
 ## Security notes
 
-- Firestore rules only allow the admin email, and `/api/gemini` only accepts that account's Firebase ID token. Run `npm run set-admin` whenever you change the email, then `npm run deploy:rules` and update `ADMIN_EMAIL` on Vercel.
+- Firestore rules only allow the emails in `ADMIN_EMAILS`, and `/api/gemini` only accepts those accounts' Firebase ID tokens. To add or remove an admin: create/delete the user in Firebase Authentication, run `npm run set-admin -- <full list>`, then `npm run deploy:rules`, and update `ADMIN_EMAILS` on Vercel.
+- Admin emails live only in `.env.local` and Vercel, never in the repo: `firestore.rules` is generated from `firestore.rules.template` and git-ignored, because this repository is public.
 - Receipt and DuitNow QR links in WhatsApp messages work for anyone who has the link (the random id is the key), the same way a cloud-storage share link does. Don't upload anything you wouldn't send to your housemates.
 - Recurring bills are created when you open the dashboard, not at a fixed time — if nobody opens the app on the 1st, rent appears the next time it's opened (with the correct date).
 - SheetJS is installed from npm at 0.18.5, the last version published there. Newer versions (with fixes for crafted-file parsing issues) are distributed from `https://cdn.sheetjs.com`; to switch, run `npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`. Only import statements from your own bank.

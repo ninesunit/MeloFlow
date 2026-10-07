@@ -1,14 +1,18 @@
 rules_version = '2';
 
-// MeloFlow is a single-user app: only the administrator account may read or
-// write anything, except opening a shared file by its exact id (see /files).
-// Set the email below with `npm run set-admin -- you@example.com`.
+// TEMPLATE — edit this file, not firestore.rules. `npm run deploy:rules` (or
+// `npm run set-admin`) fills in the admin list below from ADMIN_EMAILS in
+// .env.local and writes firestore.rules, which is git-ignored so the admin
+// emails never end up in the public repo.
+//
+// Only the admin accounts may read or write anything, except opening a shared
+// file by its exact id (see /files). All admins see and edit the same data.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
       return request.auth != null
         && request.auth.token.email != null
-        && request.auth.token.email.lower() == 'you@example.com';
+        && request.auth.token.email.lower() in [__ADMIN_EMAILS__];
     }
 
     match /transactions/{id} {

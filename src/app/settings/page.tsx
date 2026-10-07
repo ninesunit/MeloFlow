@@ -272,7 +272,7 @@ function AccountPanel() {
     <Panel title="Account">
       <div className="flex flex-col gap-3">
         <p className="text-ink-soft">
-          Signed in as <span className="font-medium text-ink">{user?.email}</span>. This is the only account that can open MeloFlow.
+          Signed in as <span className="font-medium text-ink">{user?.email}</span>. Only the admin accounts listed in the Firestore rules can open MeloFlow.
         </p>
         <Button className="w-fit" onClick={() => signOut()}>
           <Icon name="logout" className="h-4 w-4" /> Sign out

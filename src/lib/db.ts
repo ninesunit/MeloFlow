@@ -17,7 +17,6 @@ import {
   runTransaction,
   setDoc,
   Timestamp,
-  updateDoc,
   where,
   writeBatch,
   type DocumentData,
@@ -123,14 +122,14 @@ export function subscribeSettings(onData: (s: UserSettings | null) => void, onEr
 
 // ---------- settings ----------
 
-/** Make sure the settings document exists and records the admin's uid. */
+/**
+ * Create the settings document the first time any admin signs in. With more
+ * than one admin account, `adminUid` simply records who set the app up.
+ */
 export async function ensureSettings(adminUid: string, existing: UserSettings | null): Promise<void> {
+  if (existing) return;
   const r = doc(firestore(), COLLECTIONS.userSettings, SETTINGS_DOC_ID);
-  if (!existing) {
-    await setDoc(r, toFirestore({ ...defaultSettings(adminUid), updatedAt: new Date() }));
-  } else if (existing.adminUid !== adminUid) {
-    await updateDoc(r, { adminUid, updatedAt: Timestamp.now() });
-  }
+  await setDoc(r, toFirestore({ ...defaultSettings(adminUid), updatedAt: new Date() }));
 }
 
 export async function saveSettings(patch: Partial<UserSettings>): Promise<void> {

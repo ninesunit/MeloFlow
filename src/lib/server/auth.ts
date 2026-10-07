@@ -11,11 +11,20 @@ const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"),
 );
 
+/** Admin emails from ADMIN_EMAILS (comma-separated). ADMIN_EMAIL (single) still works. */
+export function adminEmails(): string[] {
+  const raw = process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "";
+  return raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export async function requireAdmin(request: Request): Promise<{ uid: string; email: string }> {
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  if (!projectId || !adminEmail) {
-    throw new ApiError(500, "The server is missing NEXT_PUBLIC_FIREBASE_PROJECT_ID or ADMIN_EMAIL. Add them to .env.local (or your Vercel project settings).");
+  const admins = adminEmails();
+  if (!projectId || admins.length === 0) {
+    throw new ApiError(500, "The server is missing NEXT_PUBLIC_FIREBASE_PROJECT_ID or ADMIN_EMAILS. Add them to .env.local (or your Vercel project settings).");
   }
 
   const header = request.headers.get("authorization") ?? "";
@@ -34,8 +43,8 @@ export async function requireAdmin(request: Request): Promise<{ uid: string; ema
   }
 
   const email = typeof payload.email === "string" ? payload.email.toLowerCase() : "";
-  if (!payload.sub || email !== adminEmail) {
-    throw new ApiError(403, "Only the administrator account can use this.");
+  if (!payload.sub || !admins.includes(email)) {
+    throw new ApiError(403, "Only the admin accounts can use this.");
   }
   return { uid: payload.sub, email };
 }

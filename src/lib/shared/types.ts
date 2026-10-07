@@ -159,6 +159,7 @@ export interface TariffSettings {
 
 export interface UserSettings {
   id: string;
+  /** The account that first set the app up (any admin account can use it). */
   adminUid: string;
   adminName: string;
   housemates: Housemate[];
