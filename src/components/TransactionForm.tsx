@@ -5,12 +5,14 @@ import { ai } from "@/lib/ai";
 import { createTransaction, replaceTransaction, updateTransactionDetails, type TransactionInput } from "@/lib/db";
 import { deleteStoredFile, prepareBillFile, saveFile } from "@/lib/files";
 import { fromDateInput, mytParts, toDateInput } from "@/lib/shared/dates";
-import { formatRM, round2 } from "@/lib/shared/money";
+import { round2 } from "@/lib/shared/money";
 import { planReceivables, splitBill, SplitError } from "@/lib/shared/split";
-import { CATEGORIES, subCategoriesFor, type Category, type SplitConfig, type SplitMode, type Transaction } from "@/lib/shared/types";
+import { configFromDraft, defaultSplitDraft, describeSplit, draftFromConfig, type SplitDraft } from "@/lib/shared/split-defaults";
+import { CATEGORIES, subCategoriesFor, type Category, type SplitConfig, type Transaction, type UserSettings } from "@/lib/shared/types";
 import { Icon } from "./icons";
 import { errorText, useToast } from "./providers/ToastProvider";
 import { useData } from "./providers/DataProvider";
+import { SplitEditor } from "./SplitEditor";
 import { Button, Checkbox, cx, Dialog, Field, Input, Notice, Segmented, Select, Spinner, Textarea } from "./ui";
 
 interface FormState {
@@ -28,20 +30,33 @@ interface FormState {
   frequency: "Monthly" | "Yearly";
   recurrenceDay: string;
   splitEnabled: boolean;
-  mode: SplitMode;
-  participants: string[];
-  ratios: Record<string, string>;
-  fixed: Record<string, string>;
+  split: SplitDraft;
+  /** True once the split was changed by hand, so picking a kind won't overwrite it. */
+  splitTouched: boolean;
   receiptFileId: string | null;
 }
 
-function initialState(t: Transaction | null | undefined, people: string[], adminName: string, defaultCategory: Category): FormState {
+/** Change the kind of bill, applying that kind's saved default split unless the split was edited. */
+function withKind(s: FormState, category: Category, subCategory: string, ctx: { settings: Pick<UserSettings, "defaultSplits">; people: string[]; adminName: string }): FormState {
+  const next = { ...s, category, subCategory };
+  if (category !== "House Bill") return { ...next, splitEnabled: false };
+  if (s.splitTouched) return { ...next, splitEnabled: s.category === "House Bill" ? s.splitEnabled : true };
+  return { ...next, splitEnabled: true, split: defaultSplitDraft(ctx.settings, subCategory, ctx.people, ctx.adminName) };
+}
+
+function initialState(
+  t: Transaction | null | undefined,
+  people: string[],
+  adminName: string,
+  defaultCategory: Category,
+  settings: Pick<UserSettings, "defaultSplits">,
+): FormState {
   const today = toDateInput(new Date());
   if (!t) {
-    const share = people.length ? round2(100 / people.length) : 0;
+    const subCategory = defaultCategory === "House Bill" ? "Electric" : subCategoriesFor(defaultCategory)[0];
     return {
       category: defaultCategory,
-      subCategory: defaultCategory === "House Bill" ? "Electric" : subCategoriesFor(defaultCategory)[0],
+      subCategory,
       vendor: "",
       description: "",
       amount: "",
@@ -54,10 +69,8 @@ function initialState(t: Transaction | null | undefined, people: string[], admin
       frequency: "Monthly",
       recurrenceDay: String(Math.min(28, mytParts(new Date()).day)),
       splitEnabled: defaultCategory === "House Bill",
-      mode: "equal",
-      participants: [...people],
-      ratios: Object.fromEntries(people.map((p) => [p, String(share)])),
-      fixed: Object.fromEntries(people.filter((p) => p !== adminName).map((p) => [p, ""])),
+      split: defaultSplitDraft(settings, subCategory, people, adminName),
+      splitTouched: false,
       receiptFileId: null,
     };
   }
@@ -77,10 +90,9 @@ function initialState(t: Transaction | null | undefined, people: string[], admin
     frequency: t.frequency ?? "Monthly",
     recurrenceDay: String(t.recurrenceDay ?? Math.min(28, mytParts(t.date).day)),
     splitEnabled: Boolean(split),
-    mode: split?.mode ?? "equal",
-    participants: split?.participants ?? [...people],
-    ratios: Object.fromEntries(people.map((p) => [p, String(split?.ratios?.[p] ?? round2(100 / people.length))])),
-    fixed: Object.fromEntries(people.filter((p) => p !== adminName).map((p) => [p, split?.fixedAmounts?.[p] != null ? String(split.fixedAmounts[p]) : ""])),
+    // An existing bill keeps its own split; an unsplit one starts from the kind's default.
+    split: split ? draftFromConfig(split, people, adminName) : defaultSplitDraft(settings, t.subCategory, people, adminName),
+    splitTouched: Boolean(split),
     receiptFileId: t.receiptFileId ?? null,
   };
 }
@@ -109,7 +121,7 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
   const { people, settings, balances, receivablesByTx } = useData();
   const toast = useToast();
   const adminName = settings.adminName;
-  const [f, setF] = useState<FormState>(() => initialState(existing, people, adminName, defaultCategory));
+  const [f, setF] = useState<FormState>(() => initialState(existing, people, adminName, defaultCategory, settings));
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
   const [ocrNote, setOcrNote] = useState<string | null>(null);
@@ -125,15 +137,13 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
   const isUtility = isHouse && (f.subCategory === "Electric" || f.subCategory === "Water");
   const amount = toNumber(f.amount);
 
-  const splitConfig: SplitConfig | null = useMemo(() => {
-    if (!isHouse || !f.splitEnabled) return null;
-    return {
-      mode: f.mode,
-      participants: people.filter((p) => f.participants.includes(p)),
-      ...(f.mode === "ratio" ? { ratios: Object.fromEntries(people.filter((p) => f.participants.includes(p)).map((p) => [p, toNumber(f.ratios[p] ?? "0") || 0])) } : {}),
-      ...(f.mode === "fixed" ? { fixedAmounts: Object.fromEntries(Object.entries(f.fixed).filter(([p]) => f.participants.includes(p)).map(([p, v]) => [p, toNumber(v) || 0])) } : {}),
-    };
-  }, [isHouse, f.splitEnabled, f.mode, f.participants, f.ratios, f.fixed, people]);
+  const kindCtx = { settings, people, adminName };
+  const splitConfig: SplitConfig | null = useMemo(
+    () => (isHouse && f.splitEnabled ? configFromDraft(f.split, people) : null),
+    [isHouse, f.splitEnabled, f.split, people],
+  );
+  const savedDefault = settings.defaultSplits?.[f.subCategory];
+  const usingDefault = !f.splitTouched && !existing?.split;
 
   // Live preview of the split, including running balances.
   const preview = useMemo(() => {
@@ -174,10 +184,10 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
         setF((s) => {
           const category = parsed.category ?? s.category;
           const subs = subCategoriesFor(category);
+          const subCategory = parsed.subCategory && subs.includes(parsed.subCategory) ? parsed.subCategory : category === s.category ? s.subCategory : subs[0];
+          const kinded = moneyLocked ? s : withKind(s, category, subCategory, kindCtx);
           return {
-            ...s,
-            category,
-            subCategory: parsed.subCategory && subs.includes(parsed.subCategory) ? parsed.subCategory : s.subCategory,
+            ...kinded,
             vendor: parsed.vendor ?? s.vendor,
             amount: parsed.totalAmount != null ? String(parsed.totalAmount) : s.amount,
             date: parsed.billDate ?? s.date,
@@ -185,7 +195,6 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
             units: parsed.consumptionUnits != null ? String(parsed.consumptionUnits) : s.units,
             periodStart: parsed.billingPeriodStart ?? s.periodStart,
             periodEnd: parsed.billingPeriodEnd ?? s.periodEnd,
-            splitEnabled: category === "House Bill" ? s.splitEnabled : false,
           };
         });
         setOcrNote(
@@ -351,14 +360,21 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
           options={CATEGORIES.map((c) => ({ value: c, label: c === "House Bill" ? "Shared house bill" : c === "Personal Expense" ? "Personal expense" : "Income" }))}
           onChange={(c) => {
             if (moneyLocked) return;
-            setF((s) => ({ ...s, category: c, subCategory: subCategoriesFor(c)[0], splitEnabled: c === "House Bill" }));
+            setF((s) => withKind(s, c, subCategoriesFor(c)[0], kindCtx));
           }}
         />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Kind">
             {(id) => (
-              <Select id={id} value={f.subCategory} onChange={(e) => set("subCategory", e.target.value)}>
+              <Select
+                id={id}
+                value={f.subCategory}
+                onChange={(e) => {
+                  const sub = e.target.value;
+                  setF((s) => (moneyLocked || existing?.split ? { ...s, subCategory: sub } : withKind(s, s.category, sub, kindCtx)));
+                }}
+              >
                 {subs.map((s) => (
                   <option key={s}>{s}</option>
                 ))}
@@ -418,60 +434,22 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
           <div className={cx("flex flex-col gap-4 rounded-[var(--radius-control)] border border-line px-4 py-4", moneyLocked && "pointer-events-none opacity-60")}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Checkbox label="Split with housemates" checked={f.splitEnabled} onChange={(v) => set("splitEnabled", v)} />
-              {f.splitEnabled && (
-                <Segmented
-                  label="Split method"
-                  value={f.mode}
-                  options={[
-                    { value: "equal", label: "Equally" },
-                    { value: "ratio", label: "By %" },
-                    { value: "fixed", label: "Fixed RM" },
-                  ]}
-                  onChange={(m) => set("mode", m)}
-                />
+              {f.splitEnabled && usingDefault && (
+                <span className="text-xs text-ink-soft">
+                  {savedDefault ? `Your default for ${f.subCategory}: ${describeSplit(savedDefault, people)}` : "Everyone equally — set defaults in Settings"}
+                </span>
               )}
             </div>
             {f.splitEnabled && (
               <>
-                <div className="flex flex-col divide-y divide-line">
-                  {people.map((p) => {
-                    const included = f.participants.includes(p);
-                    const plan = preview?.plans.find((x) => x.debtorName === p);
-                    const share = preview?.shares?.[p];
-                    return (
-                      <div key={p} className="flex flex-wrap items-center gap-3 py-2.5">
-                        <div className="w-32">
-                          <Checkbox
-                            label={<span className="font-medium">{p}</span>}
-                            checked={included}
-                            onChange={(v) => set("participants", v ? [...f.participants, p] : f.participants.filter((x) => x !== p))}
-                          />
-                        </div>
-                        {included && f.mode === "ratio" && (
-                          <div className="flex w-28 items-center gap-1">
-                            <Input aria-label={`${p} percentage`} type="number" step="0.01" min="0" value={f.ratios[p] ?? ""} onChange={(e) => set("ratios", { ...f.ratios, [p]: e.target.value })} />
-                            <span className="text-ink-soft">%</span>
-                          </div>
-                        )}
-                        {included && f.mode === "fixed" && p !== adminName && (
-                          <div className="flex w-32 items-center gap-1">
-                            <span className="text-ink-soft">RM</span>
-                            <Input aria-label={`${p} fixed amount`} type="number" step="0.01" min="0" value={f.fixed[p] ?? ""} onChange={(e) => set("fixed", { ...f.fixed, [p]: e.target.value })} />
-                          </div>
-                        )}
-                        {included && f.mode === "fixed" && p === adminName && <span className="w-32 text-sm text-ink-soft">pays the rest</span>}
-                        <div className="ml-auto text-right">
-                          {included && share !== undefined && <p className="num font-medium">{formatRM(share)}</p>}
-                          {plan && Math.abs(plan.carryIn) >= 0.005 && (
-                            <p className="num text-xs text-ink-soft">
-                              {plan.carryIn > 0 ? `+${formatRM(plan.carryIn)} carried over` : `${formatRM(plan.carryIn)} credit used`} → owes {formatRM(plan.amountOwed)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <SplitEditor
+                  draft={f.split}
+                  onChange={(split) => setF((s) => ({ ...s, split, splitTouched: true }))}
+                  people={people}
+                  adminName={adminName}
+                  shares={preview?.shares}
+                  plans={preview?.plans}
+                />
                 {preview?.error && <p className="text-sm text-pending">{preview.error}</p>}
                 <p className="text-xs text-ink-faint">
                   Unpaid amounts and overpayments from earlier bills are added to or taken off each housemate&rsquo;s share automatically.

@@ -12,6 +12,7 @@ import { electricityCost, waterCost } from "../tariffs";
 import { DEFAULT_TARIFFS, type Transaction } from "../types";
 import { mytDate, monthKey, shiftMonths } from "../dates";
 import { dueOccurrences, occurrenceFor } from "../recurring";
+import { configFromDraft, defaultSplitDraft, describeSplit, evenPercents } from "../split-defaults";
 import { baselineForecast, detectAnomalies } from "../utilities";
 import { guessCategory, parseAmount, parseStatementDate } from "../importing";
 import { monthlyKwh, monthlyWaterM3 } from "../estimator";
@@ -28,6 +29,15 @@ describe("splitBill", () => {
     const s = splitBill(250.55, { mode: "ratio", participants: people, ratios: { Alia: 40, Nana: 30, Alisa: 30 } }, "Alia");
     expect(Object.values(s).reduce((a, b) => a + b, 0)).toBeCloseTo(250.55, 2);
     expect(s.Alia).toBeCloseTo(100.22, 2);
+  });
+  it("accepts 33.33% × 3 and balances it to the exact total", () => {
+    const s = splitBill(100, { mode: "ratio", participants: people, ratios: { Alia: 33.33, Nana: 33.33, Alisa: 33.33 } }, "Alia");
+    expect(s).toEqual({ Alia: 33.34, Nana: 33.33, Alisa: 33.33 });
+  });
+  it("leaves a housemate out of a bill entirely", () => {
+    const s = splitBill(120, { mode: "equal", participants: ["Alia", "Nana"] }, "Alia");
+    expect(s).toEqual({ Alia: 60, Nana: 60 });
+    expect(planReceivables(s, "Alia", {}).map((p) => p.debtorName)).toEqual(["Nana"]);
   });
   it("rejects percentages that do not add to 100", () => {
     expect(() => splitBill(100, { mode: "ratio", participants: people, ratios: { Alia: 50, Nana: 30, Alisa: 10 } }, "Alia")).toThrow();
@@ -182,6 +192,32 @@ describe("statement import", () => {
     expect(guessCategory("JOMPAY TNB 12345", -120)).toEqual({ category: "House Bill", subCategory: "Electric" });
     expect(guessCategory("GRABFOOD MY", -25)).toEqual({ category: "Personal Expense", subCategory: "Food" });
     expect(guessCategory("DUITNOW TRANSFER NANA", 60).category).toBe("Income");
+  });
+});
+
+describe("default splits per bill kind", () => {
+  const settings = {
+    defaultSplits: {
+      Electric: { mode: "equal" as const, participants: ["Alia", "Nana"] },
+      Rent: { mode: "fixed" as const, participants: people, fixedAmounts: { Nana: 450, Alisa: 500 } },
+    },
+  };
+  it("uses the saved split for that kind, and everyone equally otherwise", () => {
+    expect(defaultSplitDraft(settings, "Electric", people, "Alia").participants).toEqual(["Alia", "Nana"]);
+    expect(defaultSplitDraft(settings, "Water", people, "Alia")).toMatchObject({ mode: "equal", participants: people });
+    const rent = configFromDraft(defaultSplitDraft(settings, "Rent", people, "Alia"), people);
+    expect(splitBill(1500, rent, "Alia")).toEqual({ Alia: 550, Nana: 450, Alisa: 500 });
+  });
+  it("ignores people who are no longer in the household", () => {
+    const d = defaultSplitDraft({ defaultSplits: { Wifi: { mode: "equal", participants: ["Alia", "Old"] } } }, "Wifi", people, "Alia");
+    expect(d.participants).toEqual(["Alia"]);
+  });
+  it("makes even percentages that total exactly 100", () => {
+    expect(evenPercents(people)).toEqual({ Alia: "33.34", Nana: "33.33", Alisa: "33.33" });
+  });
+  it("describes a split in plain words", () => {
+    expect(describeSplit(settings.defaultSplits.Electric, people)).toBe("Alia & Nana, equally");
+    expect(describeSplit(settings.defaultSplits.Rent, people)).toBe("Nana RM450.00 · Alisa RM500.00 · Alia the rest");
   });
 });
 

@@ -11,7 +11,17 @@
 export const CATEGORIES = ["House Bill", "Personal Expense", "Income"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
-export const HOUSE_SUBCATEGORIES = ["Rent", "Electric", "Water", "Wifi", "Miscellaneous"] as const;
+export const HOUSE_SUBCATEGORIES = [
+  "Rent",
+  "Electric",
+  "Water",
+  "Wifi",
+  "Gas",
+  "Cleaning & Supplies",
+  "Repairs & Maintenance",
+  "Shared Groceries",
+  "Miscellaneous",
+] as const;
 export type HouseSubCategory = (typeof HOUSE_SUBCATEGORIES)[number];
 
 export const PERSONAL_EXPENSE_SUBCATEGORIES = [
@@ -172,6 +182,12 @@ export interface UserSettings {
   /** Overall personal monthly spending cap (0 = no cap). */
   monthlyPersonalBudget: number;
   tariffs: TariffSettings;
+  /**
+   * Saved default split for each kind of house bill (keyed by subCategory).
+   * Pre-fills the split when a bill of that kind is added; kinds without an
+   * entry are split equally between everyone.
+   */
+  defaultSplits?: Record<string, SplitConfig>;
   updatedAt?: Date;
 }
 
@@ -217,5 +233,6 @@ export function defaultSettings(adminUid: string): Omit<UserSettings, "id"> {
     personalBudgetCaps: {},
     monthlyPersonalBudget: 0,
     tariffs: { ...DEFAULT_TARIFFS },
+    defaultSplits: {},
   };
 }

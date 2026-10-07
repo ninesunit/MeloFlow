@@ -16,6 +16,7 @@ import {
   query,
   runTransaction,
   setDoc,
+  updateDoc,
   Timestamp,
   where,
   writeBatch,
@@ -132,9 +133,21 @@ export async function ensureSettings(adminUid: string, existing: UserSettings | 
   await setDoc(r, toFirestore({ ...defaultSettings(adminUid), updatedAt: new Date() }));
 }
 
+/**
+ * Save some settings. Each top-level field given replaces the stored value
+ * entirely (so removing a budget cap or a default split really removes it);
+ * fields not given are left alone.
+ */
 export async function saveSettings(patch: Partial<UserSettings>): Promise<void> {
   const r = doc(firestore(), COLLECTIONS.userSettings, SETTINGS_DOC_ID);
-  await setDoc(r, toFirestore({ ...patch, updatedAt: new Date() }), { merge: true });
+  const data = toFirestore({ ...patch, updatedAt: new Date() });
+  try {
+    await updateDoc(r, data);
+  } catch (e) {
+    // First save before the settings document exists.
+    if ((e as { code?: string }).code === "not-found") await setDoc(r, data, { merge: true });
+    else throw e;
+  }
 }
 
 // ---------- transactions ----------

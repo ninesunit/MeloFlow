@@ -87,6 +87,7 @@ const HOUSE_RULES: [RegExp, string][] = [
   [/AIR SELANGOR|SYABAS|PENGURUSAN AIR|\bSAJ\b|\bPBA\b|INDAH WATER|\bIWK\b/i, "Water"],
   [/UNIFI|\bTIME\b.*(FIBRE|INTERNET|DOTCOM)|MAXIS ?FIBRE|CELCOMDIGI ?FIBRE|ASTRO ?FIBRE|YES ?4G/i, "Wifi"],
   [/\bRENT|SEWA\b/i, "Rent"],
+  [/\bLPG\b|GAS (MALAYSIA|CYLINDER|TONG)|\bGASMALAYSIA\b/i, "Gas"],
 ];
 
 const PERSONAL_RULES: [RegExp, string][] = [

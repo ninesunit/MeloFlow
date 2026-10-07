@@ -14,6 +14,12 @@ import type { PaymentStatus, Receivable, SplitConfig } from "./types";
 export class SplitError extends Error {}
 
 /**
+ * Percentages within this many points of 100 are accepted and scaled to
+ * exactly 100% (so 33.33 + 33.33 + 33.33 works).
+ */
+export const PERCENT_TOLERANCE = 0.1;
+
+/**
  * Divide a bill between participants. Results are exact to the sen and always
  * add up to the total. Leftover sen from rounding go to the first
  * participants in order (the admin is listed first, so she absorbs them).
@@ -42,8 +48,9 @@ export function splitBill(total: number, config: SplitConfig, adminName: string)
     const weights = people.map((p) => Math.max(0, Number(ratios[p] ?? 0)));
     const sum = weights.reduce((a, b) => a + b, 0);
     if (sum <= 0) throw new SplitError("Enter a percentage for at least one person.");
-    if (Math.abs(sum - 100) > 0.01) throw new SplitError(`Percentages add up to ${round2(sum)}%, not 100%.`);
-    // Largest-remainder method so the sen add up exactly.
+    if (Math.abs(sum - 100) > PERCENT_TOLERANCE) throw new SplitError(`Percentages add up to ${round2(sum)}%, not 100%.`);
+    // Scale to exactly 100% and use the largest-remainder method so the sen add
+    // up exactly; ties go to the first participants (the admin is listed first).
     const raw = weights.map((w) => (totalSen * w) / sum);
     const floors = raw.map(Math.floor);
     let leftover = totalSen - floors.reduce((a, b) => a + b, 0);

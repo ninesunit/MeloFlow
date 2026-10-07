@@ -12,7 +12,7 @@ Built for one main tenant (Alia) sharing with two housemates (Nana and Alisa). N
 | --- | --- |
 | **Dashboard** | Who owes what right now, bills due in the next two weeks, this month's cash flow, spike warnings, and a FullCalendar month view coloured by status (red pending, amber partly paid, green settled). Upcoming recurring bills show as outlines. |
 | **Bill upload + AI reading** | Upload a photo or PDF of a TNB, Air Selangor, Unifi or any bill. Gemini reads the vendor, total, due date, billing period and kWh / m³ and fills the form for you to check. |
-| **Smart split** | Split equally, by percentage, or with fixed amounts for housemates (the main tenant covers the rest). Splits are exact to the sen. |
+| **Smart split** | Split equally, by percentage, or with fixed amounts for housemates (the main tenant covers the rest), and untick anyone who doesn't pay for a bill. **Default splits** in Settings save who pays for each kind of bill (e.g. Alisa doesn't pay for electricity) and pre-fill new bills. Percentages within 0.1% of 100 (like 33.33 × 3) are balanced automatically. Splits are exact to the sen. |
 | **Running balances** | If a housemate pays too little and the rest is carried forward, or pays too much, the difference is stored and added to / taken off their next bill automatically. Every change is logged. |
 | **Settle up** | Per housemate: open bills, *Paid in full*, *Part payment*, *Carry rest to next bill*, manual balance adjustments, and history. |
 | **WhatsApp** | One tap opens WhatsApp with a ready message: breakdown, carried-over amount, amount to pay, due date, receipt link, bank details and DuitNow QR link. Optional Gemini rewrite (friendly / formal / short; English, BM or rojak) keeps every number intact. |
@@ -70,11 +70,11 @@ scripts/build-rules.mjs   generates firestore.rules (git-ignored) from the templ
 
 | Collection | Key fields |
 | --- | --- |
-| `transactions` | `date`, `category` (House Bill / Personal Expense / Income), `subCategory`, `vendor`, `totalAmount`, `consumptionUnits`, `receiptFileId`, `dueDate`, `isRecurring`, `frequency`, `recurrenceDay`, `status`, `split` (mode, participants, ratios / fixed amounts), `shares`, `receivableIds`, `recurringSourceId`, `importHash` |
+| `transactions` | `date`, `category` (House Bill / Personal Expense / Income), `subCategory` (house kinds: Rent, Electric, Water, Wifi, Gas, Cleaning & Supplies, Repairs & Maintenance, Shared Groceries, Miscellaneous), `vendor`, `totalAmount`, `consumptionUnits`, `receiptFileId`, `dueDate`, `isRecurring`, `frequency`, `recurrenceDay`, `status`, `split` (mode, participants, ratios / fixed amounts), `shares`, `receivableIds`, `recurringSourceId`, `importHash` |
 | `receivables` | `transactionId`, `debtorName`, `baseShare`, `carryIn`, `amountOwed`, `amountPaid`, `status` (Pending / Partial / Settled), `carriedForward`, `creditFromOverpayment`, `payments[]`, `updatedAt` |
 | `balances` | doc id = housemate name: `runningBalance` (positive = owes, negative = credit) |
 | `balanceEvents` | append-only log of every running-balance change |
-| `userSettings/main` | `adminUid` (who set the app up), `adminName`, `housemates[]` (name, WhatsApp), `duitNowQrFileId`, `bankAccountDetails`, `monthlyUtilityCaps`, `personalBudgetCaps`, `monthlyPersonalBudget`, `tariffs` |
+| `userSettings/main` | `adminUid` (who set the app up), `adminName`, `housemates[]` (name, WhatsApp), `duitNowQrFileId`, `bankAccountDetails`, `monthlyUtilityCaps`, `personalBudgetCaps`, `monthlyPersonalBudget`, `tariffs`, `defaultSplits` (split per house-bill kind) |
 | `appliances` | `name`, `type`, `quantity`, `powerRatingWatts`, `horsepower`, `estimatedDailyHours`, `dutyCyclePercent`, `waterVolumeCubicMeters`, `usesPerWeek` |
 | `files` | doc id = random 32-character key: `kind` (receipt / payment), `name`, `mimeType`, `size`, `data` (base64) |
 
