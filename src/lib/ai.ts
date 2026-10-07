@@ -1,7 +1,6 @@
 "use client";
 
-import { httpsCallable } from "firebase/functions";
-import { functions } from "./firebase";
+import { auth } from "./firebase";
 import type {
   AnalyzeUtilitiesRequest,
   AnalyzeUtilitiesResponse,
@@ -11,32 +10,46 @@ import type {
   ComposeMessageResponse,
   ForecastRequest,
   ForecastResponse,
-  ParseBillRequest,
   ParsedBill,
-  RunRecurringResponse,
 } from "./shared/ai-types";
 
-async function call<Req, Res>(name: string, data: Req): Promise<Res> {
+/** Calls /api/gemini with the signed-in admin's ID token. */
+async function post<Res>(body: BodyInit, json: boolean): Promise<Res> {
+  const user = auth().currentUser;
+  if (!user) throw new Error("Sign in first.");
+  const token = await user.getIdToken();
+  let res: Response;
   try {
-    const fn = httpsCallable<Req, Res>(functions(), name, { timeout: 120_000 });
-    const res = await fn(data);
-    return res.data;
-  } catch (e) {
-    const err = e as { code?: string; message?: string };
-    if (err.code === "functions/not-found" || (err.code === "functions/internal" && /not found/i.test(err.message ?? ""))) {
-      throw new Error("The AI functions aren't deployed yet. Deploy Cloud Functions (see README) and try again.");
-    }
-    if (err.code === "functions/failed-precondition") throw new Error(err.message ?? "AI is not configured.");
-    if (err.code === "functions/permission-denied") throw new Error("Only the administrator account can use this.");
-    throw new Error(err.message || "The AI request failed. Try again in a moment.");
+    // Trailing slash matches trailingSlash: true in next.config, avoiding a redirect.
+    res = await fetch("/api/gemini/", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, ...(json ? { "Content-Type": "application/json" } : {}) },
+      body,
+    });
+  } catch {
+    throw new Error("Couldn't reach the server. Check your connection and try again.");
   }
+  const payload = (await res.json().catch(() => null)) as (Res & { error?: string }) | null;
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("The AI route isn't available. Run the app with `npm run dev` or deploy it to Vercel — a static export has no server.");
+    throw new Error(payload?.error || `The AI request failed (${res.status}).`);
+  }
+  if (!payload) throw new Error("The server sent back an empty response.");
+  return payload;
 }
 
+const action = <Req, Res>(name: string) => (data: Req) => post<Res>(JSON.stringify({ action: name, data }), true);
+
 export const ai = {
-  parseBill: (req: ParseBillRequest) => call<ParseBillRequest, ParsedBill>("parseBill", req),
-  composeMessage: (req: ComposeMessageRequest) => call<ComposeMessageRequest, ComposeMessageResponse>("composeMessage", req),
-  analyzeUtilities: (req: AnalyzeUtilitiesRequest) => call<AnalyzeUtilitiesRequest, AnalyzeUtilitiesResponse>("analyzeUtilities", req),
-  forecastUtilities: (req: ForecastRequest) => call<ForecastRequest, ForecastResponse>("forecastUtilities", req),
-  categorize: (req: CategorizeRequest) => call<CategorizeRequest, CategorizeResponse>("categorizeTransactions", req),
-  runRecurringNow: () => call<Record<string, never>, RunRecurringResponse>("runRecurringNow", {}),
+  /** Read a bill or receipt (image or PDF, under 4 MB). */
+  parseBill: (file: Blob, fileName = "bill") => {
+    const form = new FormData();
+    form.set("action", "parseBill");
+    form.set("file", file, fileName);
+    return post<ParsedBill>(form, false);
+  },
+  composeMessage: action<ComposeMessageRequest, ComposeMessageResponse>("composeMessage"),
+  analyzeUtilities: action<AnalyzeUtilitiesRequest, AnalyzeUtilitiesResponse>("analyzeUtilities"),
+  forecastUtilities: action<ForecastRequest, ForecastResponse>("forecastUtilities"),
+  categorize: action<CategorizeRequest, CategorizeResponse>("categorize"),
 };

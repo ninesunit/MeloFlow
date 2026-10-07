@@ -30,13 +30,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, loading } = useAuth();
   const onLogin = pathname.startsWith("/login");
+  // Shared receipt / QR links open without signing in.
+  const isPublic = pathname.startsWith("/f/");
 
   useEffect(() => {
-    if (!loading && !user && !onLogin && isFirebaseConfigured) router.replace("/login/");
-  }, [loading, user, onLogin, router]);
+    if (!loading && !user && !onLogin && !isPublic && isFirebaseConfigured) router.replace("/login/");
+  }, [loading, user, onLogin, isPublic, router]);
 
   if (!isFirebaseConfigured) return <NotConfigured />;
-  if (onLogin) return <>{children}</>;
+  if (onLogin || isPublic) return <>{children}</>;
   if (loading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center text-ink-soft">
@@ -148,7 +150,8 @@ function NotConfigured() {
       <h1 className="text-2xl font-semibold">Connect MeloFlow to Firebase</h1>
       <p className="mt-3 text-ink-soft">
         The app can&rsquo;t find its Firebase settings. Copy <code>.env.example</code> to <code>.env.local</code>, paste in the web app config
-        from Firebase console → Project settings → Your apps, then restart <code>npm run dev</code> (or rebuild before deploying).
+        from Firebase console → Project settings → Your apps, then restart <code>npm run dev</code>. On Vercel, add the same values under Project →
+        Settings → Environment Variables and redeploy.
       </p>
     </div>
   );

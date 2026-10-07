@@ -6,8 +6,10 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useData } from "@/components/providers/DataProvider";
 import { errorText, useToast } from "@/components/providers/ToastProvider";
 import { Button, Checkbox, Field, Input, Notice, PageHeader, Panel, Textarea } from "@/components/ui";
-import { ai } from "@/lib/ai";
-import { deleteFile, saveSettings, uploadFile } from "@/lib/db";
+import { useRecurringNow } from "@/components/useRecurringNow";
+import { useStoredFile } from "@/components/useStoredFile";
+import { saveSettings } from "@/lib/db";
+import { compressImage, deleteStoredFile, saveFile } from "@/lib/files";
 import { normalisePhone } from "@/lib/shared/message";
 import { formatRM } from "@/lib/shared/money";
 import type { Housemate, TariffSettings } from "@/lib/shared/types";
@@ -107,15 +109,18 @@ function PaymentPanel() {
   const [bank, setBank] = useState(settings.bankAccountDetails ?? "");
   const [uploading, setUploading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const qr = useStoredFile(settings.duitNowQrFileId);
 
   async function onQr(file: File) {
     if (!file.type.startsWith("image/")) return toast("Choose an image of your DuitNow QR.", "error");
     setUploading(true);
     try {
-      const { url, path } = await uploadFile("payment", file);
-      const old = settings.duitNowQrPath;
-      await saveSettings({ duitNowQrUrl: url, duitNowQrPath: path });
-      await deleteFile(old);
+      // QR codes stay scannable at this size; it keeps the file well under Firestore's limit.
+      const small = await compressImage(file, { maxDim: 1000, maxBytes: 300 * 1024 });
+      const id = await saveFile(small, "duitnow-qr.jpg", "payment");
+      const old = settings.duitNowQrFileId;
+      await saveSettings({ duitNowQrFileId: id });
+      await deleteStoredFile(old);
       toast("DuitNow QR saved");
     } catch (e) {
       toast(errorText(e), "error");
@@ -137,24 +142,27 @@ function PaymentPanel() {
           <p className="mb-2 text-sm font-medium text-ink-soft">DuitNow QR</p>
           <input ref={input} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onQr(e.target.files[0])} />
           <div className="flex items-start gap-4">
-            {settings.duitNowQrUrl ? (
+            {qr.file ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={settings.duitNowQrUrl} alt="Your DuitNow QR code" className="h-28 w-28 rounded-[var(--radius-control)] border border-line object-contain" />
+              <img src={qr.file.dataUrl} alt="Your DuitNow QR code" className="h-28 w-28 rounded-[var(--radius-control)] border border-line object-contain" />
+            ) : settings.duitNowQrFileId ? (
+              <div className="flex h-28 w-28 items-center justify-center rounded-[var(--radius-control)] border border-line text-center text-xs text-ink-faint">{qr.error ?? "Loading…"}</div>
             ) : (
               <div className="flex h-28 w-28 items-center justify-center rounded-[var(--radius-control)] border border-dashed border-line text-center text-xs text-ink-faint">No QR yet</div>
             )}
             <div className="flex flex-col gap-2">
               <Button size="sm" busy={uploading} onClick={() => input.current?.click()}>
-                <Icon name="upload" className="h-4 w-4" /> {settings.duitNowQrUrl ? "Replace QR" : "Upload QR"}
+                <Icon name="upload" className="h-4 w-4" /> {settings.duitNowQrFileId ? "Replace QR" : "Upload QR"}
               </Button>
-              {settings.duitNowQrUrl && (
+              {settings.duitNowQrFileId && (
                 <Button
                   size="sm"
                   variant="ghost"
                   onClick={() =>
                     run(async () => {
-                      await saveSettings({ duitNowQrUrl: null, duitNowQrPath: null });
-                      await deleteFile(settings.duitNowQrPath);
+                      const old = settings.duitNowQrFileId;
+                      await saveSettings({ duitNowQrFileId: null });
+                      await deleteStoredFile(old);
                     }, "QR removed")
                   }
                 >
@@ -216,23 +224,8 @@ function TariffPanel() {
 
 function RecurringPanel() {
   const { transactions } = useData();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string[] | null>(null);
+  const { busy, result, runNow } = useRecurringNow();
   const templates = transactions.filter((t) => t.isRecurring);
-
-  async function runNow() {
-    setBusy(true);
-    try {
-      const res = await ai.runRecurringNow();
-      setResult(res.details.length ? res.details : ["Nothing new to create — every recurring bill for this month already exists or its day hasn't come yet."]);
-      toast(res.created ? `Created ${res.created} bill${res.created > 1 ? "s" : ""}` : "Already up to date", "info");
-    } catch (e) {
-      toast(errorText(e), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <Panel title="Recurring bills">
@@ -255,7 +248,9 @@ function RecurringPanel() {
             ))}
           </ul>
         )}
-        <p className="text-sm text-ink-soft">New copies are created automatically each day just after midnight. Run it now to create any that are due today.</p>
+        <p className="text-sm text-ink-soft">
+          Each period&rsquo;s copy is created when you open the dashboard on or after its day — including any months you missed. Use this to create them right now.
+        </p>
         <Button className="w-fit" busy={busy} onClick={runNow}>
           Create due bills now
         </Button>

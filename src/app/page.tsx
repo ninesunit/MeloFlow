@@ -8,10 +8,12 @@ import type { CalendarEntry } from "@/components/BillCalendar";
 import { Icon } from "@/components/icons";
 import { useData } from "@/components/providers/DataProvider";
 import { TransactionForm } from "@/components/TransactionForm";
+import { useRecurringBills } from "@/components/useRecurringBills";
 import { Button, Checkbox, cx, EmptyState, Money, Notice, PageHeader, Panel, StatusBadge } from "@/components/ui";
 import { WhatsAppDialog } from "@/components/WhatsAppDialog";
 import { housemateSummaries, INCOME_COLOR, monthSummary, PERSONAL_COLOR, STATUS_COLORS, upcomingDue } from "@/lib/selectors";
 import { formatDate, formatMonth, monthKey } from "@/lib/shared/dates";
+import { noticeLinks } from "@/lib/files";
 import { buildOutstandingSummary } from "@/lib/shared/message";
 import { formatRM, isZero } from "@/lib/shared/money";
 import { upcomingOccurrences } from "@/lib/shared/recurring";
@@ -28,6 +30,7 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<string | null>(null);
   const [showPersonal, setShowPersonal] = useState(false);
   const [remind, setRemind] = useState<{ name: string; draft: string } | null>(null);
+  useRecurringBills();
 
   const now = useMemo(() => new Date(), []);
   const thisMonth = monthKey(now);
@@ -108,6 +111,7 @@ export default function Dashboard() {
                         m.name,
                         m.open.map((o) => ({ label: `${o.transaction.subCategory} (${o.transaction.vendor})`, dueDate: o.transaction.dueDate, outstanding: o.due })),
                         m.runningBalance,
+                        noticeLinks(settings),
                       ),
                     })
                   }

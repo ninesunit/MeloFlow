@@ -2,7 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import { ai } from "@/lib/ai";
-import { createTransaction, deleteFile, replaceTransaction, updateTransactionDetails, uploadFile, type TransactionInput } from "@/lib/db";
+import { createTransaction, replaceTransaction, updateTransactionDetails, type TransactionInput } from "@/lib/db";
+import { deleteStoredFile, prepareBillFile, saveFile } from "@/lib/files";
 import { fromDateInput, mytParts, toDateInput } from "@/lib/shared/dates";
 import { formatRM, round2 } from "@/lib/shared/money";
 import { planReceivables, splitBill, SplitError } from "@/lib/shared/split";
@@ -31,8 +32,7 @@ interface FormState {
   participants: string[];
   ratios: Record<string, string>;
   fixed: Record<string, string>;
-  receiptUrl: string | null;
-  receiptPath: string | null;
+  receiptFileId: string | null;
 }
 
 function initialState(t: Transaction | null | undefined, people: string[], adminName: string, defaultCategory: Category): FormState {
@@ -58,8 +58,7 @@ function initialState(t: Transaction | null | undefined, people: string[], admin
       participants: [...people],
       ratios: Object.fromEntries(people.map((p) => [p, String(share)])),
       fixed: Object.fromEntries(people.filter((p) => p !== adminName).map((p) => [p, ""])),
-      receiptUrl: null,
-      receiptPath: null,
+      receiptFileId: null,
     };
   }
   const split = t.split;
@@ -82,8 +81,7 @@ function initialState(t: Transaction | null | undefined, people: string[], admin
     participants: split?.participants ?? [...people],
     ratios: Object.fromEntries(people.map((p) => [p, String(split?.ratios?.[p] ?? round2(100 / people.length))])),
     fixed: Object.fromEntries(people.filter((p) => p !== adminName).map((p) => [p, split?.fixedAmounts?.[p] != null ? String(split.fixedAmounts[p]) : ""])),
-    receiptUrl: t.receiptUrl ?? null,
-    receiptPath: t.receiptPath ?? null,
+    receiptFileId: t.receiptFileId ?? null,
   };
 }
 
@@ -156,12 +154,23 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
     setOcrNote(null);
     setReading(true);
     try {
-      const { url, path } = await uploadFile("receipts", file);
-      if (uploadedThisSession.current) await deleteFile(uploadedThisSession.current);
-      uploadedThisSession.current = path;
-      setF((s) => ({ ...s, receiptUrl: url, receiptPath: path }));
+      // Shrink photos in the browser: one copy for the AI to read, a smaller one to keep.
+      const prepared = await prepareBillFile(file);
+      let keptNote = "";
+      if (prepared.forStorage) {
+        const id = await saveFile(prepared.forStorage, prepared.name, "receipt");
+        if (uploadedThisSession.current) await deleteStoredFile(uploadedThisSession.current);
+        uploadedThisSession.current = id;
+        setF((s) => ({ ...s, receiptFileId: id }));
+      } else {
+        keptNote = " This PDF is too large to keep (over 600 KB), so it won't be attached — a photo or screenshot of the bill can be.";
+      }
+      if (!prepared.forAi) {
+        setOcrNote(`This file is over 4 MB, so it can't be read automatically. Fill in the details by hand.${keptNote}`);
+        return;
+      }
       try {
-        const parsed = await ai.parseBill({ storagePath: path, mimeType: file.type || "application/pdf" });
+        const parsed = await ai.parseBill(prepared.forAi, prepared.name);
         setF((s) => {
           const category = parsed.category ?? s.category;
           const subs = subCategoriesFor(category);
@@ -179,9 +188,11 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
             splitEnabled: category === "House Bill" ? s.splitEnabled : false,
           };
         });
-        setOcrNote(parsed.notes ? `Filled in from the bill. Note: ${parsed.notes}` : "Filled in from the bill — check the numbers before saving.");
+        setOcrNote(
+          (parsed.notes ? `Filled in from the bill. Note: ${parsed.notes}` : "Filled in from the bill — check the numbers before saving.") + keptNote,
+        );
       } catch (e) {
-        setOcrNote(`The bill is attached, but it couldn't be read automatically: ${errorText(e)} Fill in the details by hand.`);
+        setOcrNote(`${prepared.forStorage ? "The bill is attached, but it" : "It"} couldn't be read automatically: ${errorText(e)} Fill in the details by hand.${keptNote}`);
       }
     } catch (e) {
       setError(`Upload failed: ${errorText(e)}`);
@@ -224,8 +235,7 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
       consumptionUnits: isUtility && units !== null && Number.isFinite(units) ? units : null,
       billingPeriodStart: fromDateInput(f.periodStart),
       billingPeriodEnd: fromDateInput(f.periodEnd),
-      receiptUrl: f.receiptUrl,
-      receiptPath: f.receiptPath,
+      receiptFileId: f.receiptFileId,
       dueDate: fromDateInput(f.dueDate),
       isRecurring: f.isRecurring,
       frequency: f.isRecurring ? f.frequency : null,
@@ -257,8 +267,7 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
               consumptionUnits: input.consumptionUnits,
               billingPeriodStart: input.billingPeriodStart,
               billingPeriodEnd: input.billingPeriodEnd,
-              receiptUrl: input.receiptUrl,
-              receiptPath: input.receiptPath,
+              receiptFileId: input.receiptFileId,
               dueDate: input.dueDate,
               isRecurring: input.isRecurring,
               frequency: input.frequency,
@@ -267,7 +276,7 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
             existing.receivableIds,
           );
         }
-        if (existing.receiptPath && existing.receiptPath !== input.receiptPath) await deleteFile(existing.receiptPath);
+        if (existing.receiptFileId && existing.receiptFileId !== input.receiptFileId) await deleteStoredFile(existing.receiptFileId);
         toast("Changes saved");
       }
       uploadedThisSession.current = null;
@@ -281,7 +290,7 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
 
   async function cancel() {
     // Don't leave an orphaned upload behind.
-    if (uploadedThisSession.current) await deleteFile(uploadedThisSession.current);
+    if (uploadedThisSession.current) await deleteStoredFile(uploadedThisSession.current);
     onClose();
   }
 
@@ -319,11 +328,11 @@ function TransactionFormInner({ onClose, existing, defaultCategory }: { onClose:
           />
           <Button onClick={() => fileInput.current?.click()} disabled={reading}>
             {reading ? <Spinner /> : <Icon name="upload" className="h-4 w-4" />}
-            {f.receiptUrl ? "Replace bill or receipt" : "Upload bill or receipt"}
+            {f.receiptFileId ? "Replace bill or receipt" : "Upload bill or receipt"}
           </Button>
           <p className="text-sm text-ink-soft">
-            {reading ? "Reading the bill…" : f.receiptUrl ? (
-              <a href={f.receiptUrl} target="_blank" rel="noreferrer" className="text-violet underline">
+            {reading ? "Reading the bill…" : f.receiptFileId ? (
+              <a href={`/f/${f.receiptFileId}/`} target="_blank" rel="noreferrer" className="text-violet underline">
                 View attached file
               </a>
             ) : (

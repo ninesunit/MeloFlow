@@ -11,6 +11,7 @@ import { WhatsAppDialog } from "@/components/WhatsAppDialog";
 import { adjustBalance } from "@/lib/db";
 import { housemateSummaries } from "@/lib/selectors";
 import { formatDate } from "@/lib/shared/dates";
+import { noticeLinks } from "@/lib/files";
 import { buildOutstandingSummary } from "@/lib/shared/message";
 import { formatRM, isZero, round2 } from "@/lib/shared/money";
 
@@ -74,6 +75,7 @@ export default function SettlePage() {
                             m.name,
                             m.open.map((o) => ({ label: `${o.transaction.subCategory} (${o.transaction.vendor})`, dueDate: o.transaction.dueDate, outstanding: o.due })),
                             m.runningBalance,
+                            noticeLinks(settings),
                           ),
                         })
                       }

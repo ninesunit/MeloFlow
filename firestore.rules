@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // MeloFlow is a single-user app: only the administrator account may read or
-// write anything. Set the email below with `npm run set-admin -- you@example.com`.
+// write anything, except opening a shared file by its exact id (see /files).
+// Set the email below with `npm run set-admin -- you@example.com`.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
@@ -30,6 +31,22 @@ service cloud.firestore {
     }
     match /appliances/{id} {
       allow read, write: if isAdmin();
+    }
+
+    // Receipts and the DuitNow QR, stored as base64 (Cloud Storage needs the
+    // Blaze plan). Ids are long random strings, so a link to one file works
+    // like a private share link: anyone with the exact id can open that file,
+    // but only the admin can list or change them.
+    match /files/{id} {
+      allow get: if id.size() >= 30;
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && id.size() >= 30
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 900000
+        && request.resource.data.mimeType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+      allow delete: if isAdmin();
+      allow update: if false;
     }
 
     // Everything else is closed.

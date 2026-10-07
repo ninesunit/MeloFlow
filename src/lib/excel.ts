@@ -1,6 +1,7 @@
 "use client";
 
 import * as XLSX from "xlsx";
+import { fileLink } from "./files";
 import { toDateInput } from "./shared/dates";
 import type { BalanceEvent, Receivable, Transaction } from "./shared/types";
 
@@ -65,7 +66,7 @@ export function exportWorkbook(opts: {
       "Money in (RM)": t.category === "Income" ? t.totalAmount : null,
       "Money out (RM)": t.category === "Personal Expense" ? t.totalAmount : null,
       Repeats: t.isRecurring ? t.frequency : "",
-      Receipt: t.receiptUrl ?? "",
+      Receipt: fileLink(t.receiptFileId) ?? "",
     }));
 
   const house = byDate
@@ -85,7 +86,7 @@ export function exportWorkbook(opts: {
       for (const h of housemates) row[`${h}'s share (RM)`] = t.shares?.[h] ?? null;
       row.Status = t.status;
       row.Repeats = t.isRecurring ? t.frequency : "";
-      row.Receipt = t.receiptUrl ?? "";
+      row.Receipt = fileLink(t.receiptFileId) ?? "";
       return row;
     });
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { carryForwardReceivable, recordReceivablePayment, settleReceivable } from "@/lib/db";
+import { noticeLinks } from "@/lib/files";
 import { buildBillNotice } from "@/lib/shared/message";
 import { formatRM, round2 } from "@/lib/shared/money";
 import { outstanding } from "@/lib/shared/split";
@@ -34,7 +35,7 @@ export function ReceivableActions({ receivable, transaction, compact }: { receiv
     }
   }
 
-  const draft = buildBillNotice({ settings, debtorName: receivable.debtorName, transaction, receivable });
+  const draft = buildBillNotice({ settings, debtorName: receivable.debtorName, transaction, receivable, links: noticeLinks(settings, transaction) });
 
   return (
     <div className="flex flex-wrap items-center gap-2">

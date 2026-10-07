@@ -1,7 +1,0 @@
-node_modules/
-lib/
-src/shared/
-.env
-.env.*
-!.env.example
-.secret.local

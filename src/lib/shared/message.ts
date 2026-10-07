@@ -6,14 +6,21 @@ import { formatDate, mytParts } from "./dates";
 import { formatRM, isZero, round2 } from "./money";
 import type { Receivable, Transaction, UserSettings } from "./types";
 
+/** Shareable links to include, built by the app from stored file ids. */
+export interface NoticeLinks {
+  receiptUrl?: string | null;
+  qrUrl?: string | null;
+}
+
 export interface BillNoticeInput {
-  settings: Pick<UserSettings, "adminName" | "bankAccountDetails" | "duitNowQrUrl">;
+  settings: Pick<UserSettings, "adminName" | "bankAccountDetails">;
   debtorName: string;
   transaction: Pick<
     Transaction,
-    "vendor" | "subCategory" | "totalAmount" | "date" | "dueDate" | "receiptUrl" | "shares" | "split" | "consumptionUnits" | "billingPeriodStart" | "billingPeriodEnd"
+    "vendor" | "subCategory" | "totalAmount" | "date" | "dueDate" | "shares" | "split" | "consumptionUnits" | "billingPeriodStart" | "billingPeriodEnd"
   >;
   receivable: Pick<Receivable, "baseShare" | "carryIn" | "amountOwed" | "amountPaid" | "dueDate">;
+  links?: NoticeLinks;
 }
 
 function periodLabel(t: BillNoticeInput["transaction"]): string {
@@ -33,18 +40,18 @@ function splitLabel(t: BillNoticeInput["transaction"]): string {
   return "split";
 }
 
-function paymentLines(settings: BillNoticeInput["settings"]): string[] {
+function paymentLines(settings: BillNoticeInput["settings"], qrUrl?: string | null): string[] {
   const lines: string[] = [];
   if (settings.bankAccountDetails?.trim()) {
     lines.push("", "*Pay to:*", settings.bankAccountDetails.trim());
   }
-  if (settings.duitNowQrUrl) {
-    lines.push("", `DuitNow QR: ${settings.duitNowQrUrl}`);
+  if (qrUrl) {
+    lines.push("", `DuitNow QR: ${qrUrl}`);
   }
   return lines;
 }
 
-export function buildBillNotice({ settings, debtorName, transaction: t, receivable: r }: BillNoticeInput): string {
+export function buildBillNotice({ settings, debtorName, transaction: t, receivable: r, links = {} }: BillNoticeInput): string {
   const unit = t.subCategory === "Electric" ? "kWh" : t.subCategory === "Water" ? "m³" : "";
   const lines: string[] = [];
   lines.push(`Hi ${debtorName}! Here's the *${t.subCategory}* bill (${t.vendor}) for ${periodLabel(t)}.`);
@@ -68,8 +75,8 @@ export function buildBillNotice({ settings, debtorName, transaction: t, receivab
   lines.push(`*Amount to pay: ${formatRM(Math.max(0, due))}*`);
   const dueDate = r.dueDate ?? t.dueDate;
   if (dueDate) lines.push(`Due by: ${formatDate(dueDate)}`);
-  if (t.receiptUrl) lines.push("", `Receipt: ${t.receiptUrl}`);
-  lines.push(...paymentLines(settings));
+  if (links.receiptUrl) lines.push("", `Receipt: ${links.receiptUrl}`);
+  lines.push(...paymentLines(settings, links.qrUrl));
   lines.push("", `Thank you! — ${settings.adminName}`);
   return lines.join("\n");
 }
@@ -86,6 +93,7 @@ export function buildOutstandingSummary(
   debtorName: string,
   items: SummaryItem[],
   runningBalance: number,
+  links: NoticeLinks = {},
 ): string {
   const lines: string[] = [`Hi ${debtorName}! Here's a summary of house bills still outstanding:`, ""];
   let total = 0;
@@ -101,7 +109,7 @@ export function buildOutstandingSummary(
     );
   }
   lines.push("", `*Total outstanding now: ${formatRM(round2(total))}*`);
-  lines.push(...paymentLines(settings));
+  lines.push(...paymentLines(settings, links.qrUrl));
   lines.push("", `Thank you! — ${settings.adminName}`);
   return lines.join("\n");
 }

@@ -5,24 +5,25 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "set-admin": "node scripts/set-admin.mjs",
-    "functions:build": "npm --prefix functions run build",
-    "deploy": "firebase deploy",
-    "deploy:hosting": "firebase deploy --only hosting",
-    "deploy:functions": "firebase deploy --only functions",
-    "deploy:rules": "firebase deploy --only firestore,storage",
-    "preview": "next build && npx --yes serve out"
+    "deploy:rules": "firebase deploy --only firestore",
+    "emulators": "firebase emulators:start --only auth,firestore"
   },
   "dependencies": {
     "@fontsource-variable/schibsted-grotesk": "^5.3.0",
     "@fullcalendar/react": "^7.1.1",
+    "@google/genai": "^2.27.0",
     "firebase": "^12.19.0",
+    "jose": "^6.2.12",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
     "temporal-polyfill": "^1.0.5",
     "xlsx": "^0.18.5"
   },

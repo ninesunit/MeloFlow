@@ -1,10 +1,4 @@
-/** Request/response shapes for the Gemini-backed Cloud Functions. */
-
-export interface ParseBillRequest {
-  /** Path of the uploaded file in Firebase Storage (receipts/...). */
-  storagePath: string;
-  mimeType: string;
-}
+/** Request/response shapes for the Gemini actions behind /api/gemini. */
 
 export interface ParsedBill {
   vendor: string | null;
@@ -78,8 +72,3 @@ export interface CategorizeResponse {
   results: { index: number; category: "House Bill" | "Personal Expense" | "Income"; subCategory: string }[];
 }
 
-export interface RunRecurringResponse {
-  created: number;
-  skipped: number;
-  details: string[];
-}

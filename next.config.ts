@@ -1,14 +1,12 @@
 import type { NextConfig } from "next";
 
 /**
- * MeloFlow is served as a static site from Firebase Hosting.
- * All data access happens in the browser through the Firebase SDK,
- * and anything that needs a secret (Gemini) runs in Cloud Functions.
+ * MeloFlow runs on Vercel (free Hobby plan). Pages talk to Firebase Auth and
+ * Firestore (free Spark plan) from the browser; the only server code is the
+ * /api/gemini route, which keeps GEMINI_API_KEY off the client.
  */
 const nextConfig: NextConfig = {
-  output: "export",
   trailingSlash: true,
-  images: { unoptimized: true },
   turbopack: {
     rules: {
       "*.css": {

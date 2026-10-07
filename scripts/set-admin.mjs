@@ -1,6 +1,6 @@
 // Usage: npm run set-admin -- you@example.com
-// Writes the administrator email into the Firestore and Storage security
-// rules and functions/.env so all three agree.
+// Writes the administrator email into firestore.rules and ADMIN_EMAIL in
+// .env.local so the database rules and the AI route agree.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const email = (process.argv[2] || "").trim().toLowerCase();
@@ -9,15 +9,13 @@ if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
   process.exit(1);
 }
 
-for (const file of ["firestore.rules", "storage.rules"]) {
-  const src = readFileSync(file, "utf8");
-  const next = src.replace(/(request\.auth\.token\.email\.lower\(\) == ')[^']*(')/g, `$1${email}$2`);
-  writeFileSync(file, next);
-  console.log(`Updated ${file}`);
-}
+const rules = readFileSync("firestore.rules", "utf8").replace(/(request\.auth\.token\.email\.lower\(\) == ')[^']*(')/g, `$1${email}$2`);
+writeFileSync("firestore.rules", rules);
+console.log("Updated firestore.rules");
 
-const envFile = "functions/.env";
-let env = existsSync(envFile) ? readFileSync(envFile, "utf8") : readFileSync("functions/.env.example", "utf8");
+const envFile = ".env.local";
+let env = existsSync(envFile) ? readFileSync(envFile, "utf8") : readFileSync(".env.example", "utf8");
 env = /^ADMIN_EMAIL=.*$/m.test(env) ? env.replace(/^ADMIN_EMAIL=.*$/m, `ADMIN_EMAIL=${email}`) : `${env.trimEnd()}\nADMIN_EMAIL=${email}\n`;
 writeFileSync(envFile, env);
 console.log(`Updated ${envFile}`);
+console.log("Next: npm run deploy:rules, and set ADMIN_EMAIL in your Vercel environment variables too.");

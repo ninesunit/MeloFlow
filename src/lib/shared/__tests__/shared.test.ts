@@ -11,7 +11,7 @@ import {
 import { electricityCost, waterCost } from "../tariffs";
 import { DEFAULT_TARIFFS, type Transaction } from "../types";
 import { mytDate, monthKey, shiftMonths } from "../dates";
-import { occurrenceFor } from "../recurring";
+import { dueOccurrences, occurrenceFor } from "../recurring";
 import { baselineForecast, detectAnomalies } from "../utilities";
 import { guessCategory, parseAmount, parseStatementDate } from "../importing";
 import { monthlyKwh, monthlyWaterM3 } from "../estimator";
@@ -148,6 +148,13 @@ describe("dates and recurring", () => {
     expect(occ.id).toBe("rent_2026-10");
     expect(occ.dueDate?.getTime()).toBe(mytDate(2026, 10, 7).getTime());
     expect(occurrenceFor(template, mytDate(2026, 8, 20))).toBeNull();
+  });
+  it("catches up on months missed while the app wasn't opened", () => {
+    const template = { id: "rent", date: mytDate(2026, 6, 1), dueDate: null, frequency: "Monthly" as const, recurrenceDay: 5, isRecurring: true };
+    // On 3 Oct the October copy isn't due yet; July–September are.
+    expect(dueOccurrences(template, mytDate(2026, 10, 3)).map((o) => o.periodKey)).toEqual(["2026-07", "2026-08", "2026-09"]);
+    expect(dueOccurrences(template, mytDate(2026, 10, 5)).map((o) => o.periodKey)).toEqual(["2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(dueOccurrences(template, mytDate(2026, 10, 5), 2).map((o) => o.periodKey)).toEqual(["2026-09", "2026-10"]);
   });
   it("yearly bills only recur in their month", () => {
     const template = { id: "insurance", date: mytDate(2025, 10, 3), dueDate: null, frequency: "Yearly" as const, recurrenceDay: 3, isRecurring: true };

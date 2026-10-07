@@ -3,12 +3,11 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
-import { getStorage, type FirebaseStorage } from "firebase/storage";
-import { getFunctions, type Functions } from "firebase/functions";
 
 /**
  * Firebase web config. These values are not secrets (they identify the
  * project); access is controlled by Firebase Auth plus the security rules.
+ * Only Auth and Firestore are used, so everything runs on the free Spark plan.
  * Copy .env.example to .env.local and fill them in from the Firebase console.
  */
 const config = {
@@ -19,9 +18,6 @@ const config = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
-
-/** Region the Cloud Functions are deployed to (must match functions/src/config.ts). */
-export const FUNCTIONS_REGION = process.env.NEXT_PUBLIC_FUNCTIONS_REGION || "asia-southeast1";
 
 export const isFirebaseConfigured = Boolean(config.apiKey && config.projectId && config.appId);
 
@@ -49,12 +45,4 @@ export function firestore(): Firestore {
     }
   }
   return db;
-}
-
-export function storage(): FirebaseStorage {
-  return getStorage(firebaseApp());
-}
-
-export function functions(): Functions {
-  return getFunctions(firebaseApp(), FUNCTIONS_REGION);
 }

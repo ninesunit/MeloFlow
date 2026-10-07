@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Firestore access for MeloFlow. Every operation that moves money between
+ * Firestore access for MeloFlow (works on the free Spark plan). Every operation that moves money between
  * a bill, its receivables and the running balances runs inside a Firestore
  * transaction, so the ledger never ends up half-updated.
  */
@@ -23,8 +23,8 @@ import {
   type DocumentData,
   type Transaction as FsTransaction,
 } from "firebase/firestore";
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { firestore, storage } from "./firebase";
+import { deleteStoredFile } from "./files";
+import { firestore } from "./firebase";
 import { isZero, round2 } from "./shared/money";
 import {
   aggregateStatus,
@@ -138,29 +138,6 @@ export async function saveSettings(patch: Partial<UserSettings>): Promise<void> 
   await setDoc(r, toFirestore({ ...patch, updatedAt: new Date() }), { merge: true });
 }
 
-// ---------- storage ----------
-
-function safeName(name: string): string {
-  return name.replace(/[^\w.\-]+/g, "_").slice(-80);
-}
-
-export async function uploadFile(folder: "receipts" | "payment", file: File): Promise<{ url: string; path: string }> {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now());
-  const path = `${folder}/${id}-${safeName(file.name || "upload")}`;
-  const r = ref(storage(), path);
-  await uploadBytes(r, file, { contentType: file.type || undefined });
-  return { url: await getDownloadURL(r), path };
-}
-
-export async function deleteFile(path: string | null | undefined): Promise<void> {
-  if (!path) return;
-  try {
-    await deleteObject(ref(storage(), path));
-  } catch {
-    // Already gone, or never uploaded — nothing to do.
-  }
-}
-
 // ---------- transactions ----------
 
 export type TransactionInput = Omit<Transaction, "id" | "status" | "createdAt" | "updatedAt" | "shares" | "receivableIds">;
@@ -185,26 +162,44 @@ function logBalanceEvent(
 /**
  * Create a transaction. Shared house bills with a split config also get one
  * receivable per housemate, with running balances applied.
+ *
+ * With `onlyIfMissing`, nothing is written if a document with `explicitId`
+ * already exists (checked inside the same Firestore transaction) and the
+ * function returns null — this is what makes recurring generation safe to
+ * run from several tabs at once.
  */
-export async function createTransaction(input: TransactionInput, adminName: string, explicitId?: string): Promise<string> {
+export async function createTransaction(
+  input: TransactionInput,
+  adminName: string,
+  explicitId?: string,
+  opts: { onlyIfMissing?: boolean } = {},
+): Promise<string | null> {
   const db = firestore();
   const id = explicitId ?? newId(COLLECTIONS.transactions);
+  const ref = doc(db, COLLECTIONS.transactions, id);
   const now = new Date();
 
   if (input.category !== "House Bill" || !input.split) {
     const status: PaymentStatus = input.category === "House Bill" ? "Pending" : "Settled";
-    await setDoc(
-      doc(db, COLLECTIONS.transactions, id),
-      toFirestore({ ...input, split: input.split ?? null, status, shares: null, receivableIds: [], createdAt: now, updatedAt: now }),
-    );
-    return id;
+    const data = toFirestore({ ...input, split: input.split ?? null, status, shares: null, receivableIds: [], createdAt: now, updatedAt: now });
+    if (!opts.onlyIfMissing) {
+      await setDoc(ref, data);
+      return id;
+    }
+    const created = await runTransaction(db, async (tx) => {
+      if ((await tx.get(ref)).exists()) return false;
+      tx.set(ref, data);
+      return true;
+    });
+    return created ? id : null;
   }
 
   const split = input.split;
   const shares = splitBill(input.totalAmount, split, adminName);
   const debtors = Object.keys(shares).filter((n) => n !== adminName);
 
-  await runTransaction(db, async (tx) => {
+  const created = await runTransaction(db, async (tx) => {
+    if (opts.onlyIfMissing && (await tx.get(ref)).exists()) return false;
     const balances: Record<string, number> = {};
     for (const name of debtors) {
       const snap = await tx.get(balanceRef(name));
@@ -215,7 +210,7 @@ export async function createTransaction(input: TransactionInput, adminName: stri
     const status = aggregateStatus(plans.map((p) => (p.amountOwed <= 0.005 ? "Settled" : "Pending")));
 
     tx.set(
-      doc(db, COLLECTIONS.transactions, id),
+      ref,
       toFirestore({ ...input, split, shares, receivableIds, status, createdAt: now, updatedAt: now }),
     );
     for (const p of plans) {
@@ -246,12 +241,13 @@ export async function createTransaction(input: TransactionInput, adminName: stri
           reason: "applied-to-bill",
           receivableId: rid,
           transactionId: id,
-          note: `Applied to ${input.subCategory} (${input.vendor})`,
+          note: `Applied to ${input.subCategory} (${input.vendor})${input.source === "recurring" ? " — recurring" : ""}`,
         });
       }
     }
+    return true;
   });
-  return id;
+  return created ? id : null;
 }
 
 /** Fields that can be edited without touching the money trail. */
@@ -265,8 +261,7 @@ export type EditableFields = Partial<
     | "consumptionUnits"
     | "billingPeriodStart"
     | "billingPeriodEnd"
-    | "receiptUrl"
-    | "receiptPath"
+    | "receiptFileId"
     | "dueDate"
     | "isRecurring"
     | "frequency"
@@ -341,7 +336,7 @@ export async function deleteTransaction(t: Transaction, opts: { keepReceipt?: bo
     for (const r of receivables) tx.delete(doc(db, COLLECTIONS.receivables, r.id));
     tx.delete(doc(db, COLLECTIONS.transactions, t.id));
   });
-  if (!opts.keepReceipt) await deleteFile(t.receiptPath);
+  if (!opts.keepReceipt) await deleteStoredFile(t.receiptFileId);
 }
 
 /** Write many transactions at once (bank statement import). Skips hashes already present. */

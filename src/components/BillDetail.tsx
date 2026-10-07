@@ -80,11 +80,11 @@ export function BillDetail({ transactionId, onClose }: { transactionId: string |
             {t.isRecurring && <Detail label="Repeats" value={`${t.frequency === "Yearly" ? "Yearly" : "Monthly"} on day ${t.recurrenceDay}`} />}
             {template && <Detail label="Created from" value={`Recurring ${template.subCategory.toLowerCase()} bill`} />}
             {t.description && <Detail label="Note" value={t.description} />}
-            {t.receiptUrl && (
+            {t.receiptFileId && (
               <div>
                 <dt className="text-ink-faint">Receipt</dt>
                 <dd>
-                  <a href={t.receiptUrl} target="_blank" rel="noreferrer" className="text-violet underline">
+                  <a href={`/f/${t.receiptFileId}/`} target="_blank" rel="noreferrer" className="text-violet underline">
                     Open file
                   </a>
                 </dd>

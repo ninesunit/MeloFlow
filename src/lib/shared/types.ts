@@ -67,8 +67,8 @@ export interface Transaction {
   consumptionUnits?: number | null;
   billingPeriodStart?: Date | null;
   billingPeriodEnd?: Date | null;
-  receiptUrl?: string | null;
-  receiptPath?: string | null;
+  /** Id of the receipt image/PDF in the Firestore `files` collection. */
+  receiptFileId?: string | null;
   dueDate?: Date | null;
   isRecurring: boolean;
   frequency?: Frequency | null;
@@ -162,8 +162,8 @@ export interface UserSettings {
   adminUid: string;
   adminName: string;
   housemates: Housemate[];
-  duitNowQrUrl?: string | null;
-  duitNowQrPath?: string | null;
+  /** Id of the DuitNow QR image in the Firestore `files` collection. */
+  duitNowQrFileId?: string | null;
   bankAccountDetails?: string;
   monthlyUtilityCaps: { Electric: number; Water: number };
   /** Personal monthly budget caps by personal expense subcategory. */
@@ -210,8 +210,7 @@ export function defaultSettings(adminUid: string): Omit<UserSettings, "id"> {
       { name: "Nana", phone: "" },
       { name: "Alisa", phone: "" },
     ],
-    duitNowQrUrl: null,
-    duitNowQrPath: null,
+    duitNowQrFileId: null,
     bankAccountDetails: "",
     monthlyUtilityCaps: { Electric: 0, Water: 0 },
     personalBudgetCaps: {},

@@ -1,7 +1,4 @@
-import { getStorage } from "firebase-admin/storage";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { GEMINI_API_KEY, REGION, requireAdmin } from "./config";
-import { generateJson } from "./gemini";
+import "server-only";
 import type {
   AnalyzeUtilitiesRequest,
   AnalyzeUtilitiesResponse,
@@ -11,38 +8,29 @@ import type {
   ComposeMessageResponse,
   ForecastRequest,
   ForecastResponse,
-  ParseBillRequest,
   ParsedBill,
-} from "./shared/ai-types";
-import {
-  HOUSE_SUBCATEGORIES,
-  INCOME_SUBCATEGORIES,
-  PERSONAL_EXPENSE_SUBCATEGORIES,
-} from "./shared/types";
+} from "../shared/ai-types";
+import { HOUSE_SUBCATEGORIES, INCOME_SUBCATEGORIES, PERSONAL_EXPENSE_SUBCATEGORIES } from "../shared/types";
+import { ApiError } from "./errors";
+import { generateJson } from "./gemini";
 
-const callableOpts = { region: REGION, secrets: [GEMINI_API_KEY], timeoutSeconds: 120, memory: "512MiB" as const };
+/**
+ * The Gemini-powered actions behind /api/gemini. Each takes already-parsed
+ * input and returns JSON for the browser. They run only on the server.
+ */
 
-const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
-const MAX_BYTES = 15 * 1024 * 1024;
+export const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
+/** Vercel caps a request body at about 4.5 MB, so uploads must stay under 4 MB. */
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 const nullable = (type: string) => ({ type: [type, "null"] });
 
 // ---------------- Receipt / bill OCR ----------------
 
-export const parseBill = onCall<ParseBillRequest>(callableOpts, async (request): Promise<ParsedBill> => {
-  requireAdmin(request);
-  const { storagePath, mimeType } = request.data ?? ({} as ParseBillRequest);
-  if (!storagePath || !storagePath.startsWith("receipts/")) {
-    throw new HttpsError("invalid-argument", "Upload the bill first.");
+export async function parseBill(file: { mimeType: string; base64: string }): Promise<ParsedBill> {
+  if (!ALLOWED_MIME.includes(file.mimeType)) {
+    throw new ApiError(400, "Upload a JPG, PNG, WEBP, HEIC image or a PDF.");
   }
-  if (!ALLOWED_MIME.includes(mimeType)) {
-    throw new HttpsError("invalid-argument", "Upload a JPG, PNG, WEBP, HEIC image or a PDF.");
-  }
-  const file = getStorage().bucket().file(storagePath);
-  const [meta] = await file.getMetadata();
-  if (Number(meta.size ?? 0) > MAX_BYTES) throw new HttpsError("invalid-argument", "The file is larger than 15 MB.");
-  const [bytes] = await file.download();
-
   return generateJson<ParsedBill>({
     system: [
       "You read Malaysian bills and receipts and extract structured data.",
@@ -57,7 +45,7 @@ export const parseBill = onCall<ParseBillRequest>(callableOpts, async (request):
       "accountNumberLast4: only the last 4 digits of the account number if shown, otherwise null.",
     ].join("\n"),
     parts: [
-      { inlineData: { mimeType, data: bytes.toString("base64") } },
+      { inlineData: { mimeType: file.mimeType, data: file.base64 } },
       { text: "Extract the bill details from this document." },
     ],
     schema: {
@@ -93,14 +81,13 @@ export const parseBill = onCall<ParseBillRequest>(callableOpts, async (request):
     },
     temperature: 0,
   });
-});
+}
 
 // ---------------- WhatsApp message polish ----------------
 
-export const composeMessage = onCall<ComposeMessageRequest>(callableOpts, async (request): Promise<ComposeMessageResponse> => {
-  requireAdmin(request);
-  const { draft, tone, language } = request.data ?? ({} as ComposeMessageRequest);
-  if (!draft || draft.length > 4000) throw new HttpsError("invalid-argument", "The draft message is missing or too long.");
+export async function composeMessage(data: ComposeMessageRequest): Promise<ComposeMessageResponse> {
+  const { draft, tone, language } = data ?? ({} as ComposeMessageRequest);
+  if (!draft || typeof draft !== "string" || draft.length > 4000) throw new ApiError(400, "The draft message is missing or too long.");
   return generateJson<ComposeMessageResponse>({
     system: [
       "You rewrite house-bill reminders that a Malaysian student sends to her housemates on WhatsApp.",
@@ -117,14 +104,12 @@ export const composeMessage = onCall<ComposeMessageRequest>(callableOpts, async 
     },
     temperature: 0.6,
   });
-});
+}
 
 // ---------------- Consumption spike explanation ----------------
 
-export const analyzeUtilities = onCall<AnalyzeUtilitiesRequest>(callableOpts, async (request): Promise<AnalyzeUtilitiesResponse> => {
-  requireAdmin(request);
-  const d = request.data;
-  if (!d?.kind || !d.current) throw new HttpsError("invalid-argument", "Missing bill data.");
+export async function analyzeUtilities(d: AnalyzeUtilitiesRequest): Promise<AnalyzeUtilitiesResponse> {
+  if (!d?.kind || !d.current) throw new ApiError(400, "Missing bill data.");
   return generateJson<AnalyzeUtilitiesResponse>({
     system: [
       "You help a household in Selangor, Malaysia understand changes in their utility bills.",
@@ -147,15 +132,13 @@ export const analyzeUtilities = onCall<AnalyzeUtilitiesRequest>(callableOpts, as
       required: ["summary", "likelyCauses", "suggestions", "severity"],
     },
   });
-});
+}
 
 // ---------------- Forecasting ----------------
 
-export const forecastUtilities = onCall<ForecastRequest>(callableOpts, async (request): Promise<ForecastResponse> => {
-  requireAdmin(request);
-  const d = request.data;
+export async function forecastUtilities(d: ForecastRequest): Promise<ForecastResponse> {
   if (!d?.kind || !Array.isArray(d.history) || d.history.length === 0) {
-    throw new HttpsError("invalid-argument", "Add at least one past bill to forecast from.");
+    throw new ApiError(400, "Add at least one past bill to forecast from.");
   }
   return generateJson<ForecastResponse>({
     system: [
@@ -178,15 +161,14 @@ export const forecastUtilities = onCall<ForecastRequest>(callableOpts, async (re
       required: ["amount", "units", "low", "high", "reasoning"],
     },
   });
-});
+}
 
 // ---------------- Bank statement categorisation ----------------
 
-export const categorizeTransactions = onCall<CategorizeRequest>(callableOpts, async (request): Promise<CategorizeResponse> => {
-  requireAdmin(request);
-  const items = request.data?.items ?? [];
+export async function categorizeTransactions(data: CategorizeRequest): Promise<CategorizeResponse> {
+  const items = data?.items ?? [];
   if (!Array.isArray(items) || items.length === 0) return { results: [] };
-  if (items.length > 300) throw new HttpsError("invalid-argument", "Send at most 300 lines at a time.");
+  if (items.length > 300) throw new ApiError(400, "Send at most 300 lines at a time.");
   const res = await generateJson<CategorizeResponse>({
     system: [
       "Categorise Malaysian bank statement lines for a university student's budget.",
@@ -230,4 +212,4 @@ export const categorizeTransactions = onCall<CategorizeRequest>(callableOpts, as
       subCategory: valid[r.category]?.includes(r.subCategory) ? r.subCategory : "Miscellaneous",
     })),
   };
-});
+}
