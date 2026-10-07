@@ -99,12 +99,24 @@ function Frame({ pathname, children }: { pathname: string; children: ReactNode }
       <main className="mx-auto w-full max-w-[1180px] px-4 pt-6 pb-28 sm:px-6 lg:px-10 lg:pt-10 lg:pb-12">
         {error && (
           <div className="mb-4">
-            <Notice tone="error">
-              Couldn&rsquo;t load your data: {error}. Check that the Firestore rules list this account&rsquo;s email (see README).
-            </Notice>
+            {/permission/i.test(error) ? (
+              <Notice tone="error">
+                <p className="font-semibold">This account can&rsquo;t open the data yet.</p>
+                <p className="mt-1">
+                  You&rsquo;re signed in as <span className="font-medium">{user?.email}</span>, but the Firestore security rules don&rsquo;t list
+                  that email as an admin (or the rules haven&rsquo;t been published). Add it with{" "}
+                  <code>npm run set-admin -- &lt;every admin email&gt;</code>, then run <code>npm run deploy:rules</code>.
+                </p>
+                <button onClick={() => signOut()} className="mt-2 font-medium text-violet underline">
+                  Sign in with a different account
+                </button>
+              </Notice>
+            ) : (
+              <Notice tone="error">Couldn&rsquo;t load your data: {error}</Notice>
+            )}
           </div>
         )}
-        {ready ? children : <div className="flex justify-center py-24 text-ink-soft"><Spinner /></div>}
+        {ready ? children : !error && <div className="flex justify-center py-24 text-ink-soft"><Spinner /></div>}
       </main>
 
       {/* Mobile bottom navigation */}
