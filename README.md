@@ -26,7 +26,7 @@ Built for one main tenant (Alia) sharing with two housemates (Nana and Alisa). N
 
 | Need | Blaze-only Firebase feature | What MeloFlow uses instead |
 | --- | --- | --- |
-| Server code for Gemini | Cloud Functions | One Next.js API route, `src/app/api/gemini/route.ts`, on Vercel. `GEMINI_API_KEY` is a server-only environment variable and never reaches the browser. The route checks the caller's Firebase ID token (signature, project, and that the email is in `ADMIN_EMAILS`) using Google's public keys — no service account needed. |
+| Server code for Gemini | Cloud Functions | One Next.js API route, `src/app/api/gemini/route.ts`, on Vercel. `GEMINI_API_KEY` is a server-only environment variable and never reaches the browser. The route checks the caller's Firebase ID token with Google's public keys, then asks Firestore — using that same token — whether the security rules let the account in. So the Firestore rules are the one admin list; no service account needed. |
 | Monthly recurring bills | Scheduled Cloud Function | Generated in the browser when the dashboard opens (`src/lib/recurring.ts`). Each copy has a fixed id (`<templateId>_<YYYY-MM>`) and is written in a Firestore transaction that first checks the id is free, so two tabs can't create it twice. Missed months (up to 12) are filled in too. |
 | Receipts and DuitNow QR | Cloud Storage (requires Blaze since February 2026) | Photos are compressed in the browser (≤ 600 KB) and stored as base64 in the Firestore `files` collection. PDFs are kept if they're under 600 KB; larger PDFs are still read by the AI but not attached. Share links look like `https://your-app/f/<id>/`. |
 | Hosting a Next.js app with an API route | Firebase App Hosting / frameworks hosting | Vercel Hobby (free). |
@@ -117,7 +117,7 @@ Get the Gemini key at <https://aistudio.google.com/apikey>. Keep it in `.env.loc
 ### 3. Deploy to Vercel (free)
 
 1. Sign in at <https://vercel.com> with GitHub → **Add New → Project** → import `MeloFlow`. The defaults for Next.js are correct.
-2. Before deploying, open **Environment Variables** and add every variable from `.env.local`: the six `NEXT_PUBLIC_FIREBASE_…` values, `GEMINI_API_KEY`, `GEMINI_MODEL` and `ADMIN_EMAILS` (comma-separated, no spaces needed).
+2. Before deploying, open **Environment Variables** and add every variable from `.env.local`: the six `NEXT_PUBLIC_FIREBASE_…` values, `GEMINI_API_KEY` and `GEMINI_MODEL`. `ADMIN_EMAILS` is optional there (it only skips one Firestore check per sign-in).
 3. Deploy. Every push to `main` redeploys automatically.
 4. In Firebase → **Authentication → Settings → Authorized domains**, add your Vercel domain (e.g. `meloflow.vercel.app`) so sign-in works there.
 
@@ -141,7 +141,7 @@ Rates live in `src/lib/shared/tariffs.ts` — update them there if they change. 
 
 ## Security notes
 
-- Firestore rules only allow the emails in `ADMIN_EMAILS`, and `/api/gemini` only accepts those accounts' Firebase ID tokens. To add or remove an admin: create/delete the user in Firebase Authentication, run `npm run set-admin -- <full list>`, then `npm run deploy:rules`, and update `ADMIN_EMAILS` on Vercel.
+- The Firestore rules are the admin list for everything: the database, and `/api/gemini` (which asks Firestore whether the caller's account is allowed). To add or remove an admin: create/delete the user in Firebase Authentication, run `npm run set-admin -- <full list>`, then `npm run deploy:rules` (or paste the generated `firestore.rules` into the Firebase console). Nothing needs changing on Vercel.
 - Admin emails live only in `.env.local` and Vercel, never in the repo: `firestore.rules` is generated from `firestore.rules.template` and git-ignored, because this repository is public.
 - Receipt and DuitNow QR links in WhatsApp messages work for anyone who has the link (the random id is the key), the same way a cloud-storage share link does. Don't upload anything you wouldn't send to your housemates.
 - Recurring bills are created when you open the dashboard, not at a fixed time — if nobody opens the app on the 1st, rent appears the next time it's opened (with the correct date).
